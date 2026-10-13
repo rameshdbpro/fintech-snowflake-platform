@@ -1,0 +1,22 @@
+version: 2
+
+models:
+  - name: sem_governed_metrics_daily
+    description: >
+      Governed metric base (additive components only). Ratios = SUM(numerator)/SUM(denominator)
+      after aggregation. Source of every DASHBOARD.VW_* KPI; the Snowflake semantic view
+      SEMANTIC.SV_PAYMENTS uses identical formulas over the same marts/facts.
+    data_tests:
+      - amount_reconciles:
+          name: semantic_volume_equals_daily_mart
+          arguments:
+            column_name: payment_volume_inr
+            compare_model: ref('mart_payment_daily')
+            compare_column: payment_volume_inr
+      - amount_reconciles:
+          name: semantic_outstanding_equals_recon
+          arguments:
+            column_name: outstanding_settlement_inr
+            compare_model: ref('mart_settlement_reconciliation')
+            compare_column: outstanding_gross_inr
+            compare_filter: "recon_status in ('UNSETTLED','PENDING_SETTLEMENT','PARTIALLY_SETTLED','AMOUNT_MISMATCH')"

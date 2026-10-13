@@ -1,0 +1,185 @@
+version: 2
+
+# Canonical integration layer: provider-agnostic entities. Full entity
+# specifications (meaning, grain, keys, source mapping, timezone, precision,
+# audit attributes, DQ) are in docs/canonical_model.md.
+
+models:
+  - name: cnl_payment_attempt
+    description: >
+      Payment Attempt. Grain: one row per (source_system, source_transaction_id). Amount NUMBER(18,2)
+      in major units, timestamps UTC TIMESTAMP_NTZ, status normalised through CONFIG.STATUS_MAPPING.
+      Original values preserved (amount_raw, source_status, event_ts_raw). Invalid rows retained with
+      is_valid_record = false and listed in cnl_exceptions.
+    columns:
+      - name: canonical_attempt_id
+        description: "Surrogate key md5(source_system|source_transaction_id)."
+        data_tests: [unique, not_null]
+      - name: canonical_transaction_id
+        description: "md5(merchant_id|merchant_order_id): links retries across providers."
+      - name: source_system
+        data_tests: [not_null]
+      - name: source_transaction_id
+        data_tests: [not_null]
+      - name: transaction_status
+        data_tests:
+          - canonical_status_valid:
+              arguments:
+                domain: PAYMENT
+      - name: transaction_amount
+        description: "Major units, NUMBER(18,2). Minor-unit providers divided by 10^minor_units."
+        data_tests:
+          - non_negative:
+              arguments:
+                where_clause: "is_valid_record"
+      - name: currency_code
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('currency')
+                field: currency_code
+              config:
+                where: "is_valid_record"
+      - name: event_timestamp_utc
+        data_tests:
+          - not_null:
+              config:
+                where: "is_valid_record"
+
+  - name: cnl_payment_event
+    description: "Payment Event / Status History. Grain: one row per status event or payment-record snapshot."
+    columns:
+      - name: canonical_event_id
+        data_tests: [unique, not_null]
+      - name: canonical_status
+        data_tests:
+          - canonical_status_valid:
+              arguments:
+                domain: PAYMENT
+
+  - name: cnl_payment_transaction
+    description: "Payment Transaction (merchant order). Grain: (merchant_id, merchant_order_id). Valid attempts only."
+    columns:
+      - name: canonical_transaction_id
+        data_tests: [unique, not_null]
+      - name: final_status
+        data_tests:
+          - not_null
+          - canonical_status_valid:
+              arguments:
+                domain: PAYMENT
+      - name: attempt_count
+        data_tests: [not_null]
+      - name: captured_amount
+        data_tests: [non_negative]
+
+  - name: cnl_refund
+    description: "Refund. Grain: refund_id. Current status = latest terminal event."
+    columns:
+      - name: canonical_refund_id
+        data_tests: [unique, not_null]
+      - name: refund_status
+        data_tests:
+          - canonical_status_valid:
+              arguments:
+                domain: REFUND
+
+  - name: cnl_refund_event
+    columns:
+      - name: canonical_refund_event_id
+        data_tests: [unique, not_null]
+
+  - name: cnl_settlement
+    description: "Settlement line. Grain: settlement_line_id. Many per payment allowed."
+    columns:
+      - name: canonical_settlement_id
+        data_tests: [unique, not_null]
+      - name: is_line_balanced
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [true]
+              config: {severity: warn}
+
+  - name: cnl_bank_statement_transaction
+    columns:
+      - name: canonical_bank_txn_id
+        data_tests: [unique, not_null]
+
+  - name: cnl_chargeback
+    columns:
+      - name: canonical_chargeback_id
+        data_tests: [unique, not_null]
+      - name: canonical_status
+        data_tests:
+          - canonical_status_valid:
+              arguments:
+                domain: CHARGEBACK
+
+  - name: cnl_fraud_alert
+    columns:
+      - name: canonical_alert_id
+        data_tests: [unique, not_null]
+
+  - name: cnl_party_customer
+    description: "Party / Customer (current). PII retained for KYC operations; PAN replaced by pan_token."
+    columns:
+      - name: customer_id
+        data_tests: [unique, not_null]
+
+  - name: cnl_customer_kyc_history
+    description: "Customer KYC history with validity windows; first version extended back to 1900-01-01."
+    columns:
+      - name: canonical_kyc_version_id
+        data_tests: [unique, not_null]
+    data_tests:
+      - scd2_valid_windows:
+          arguments:
+            business_key: customer_id
+            valid_from: valid_from_utc
+            valid_to: valid_to_utc
+            current_flag: is_current
+
+  - name: cnl_customer_risk_profile
+    columns:
+      - name: customer_id
+        data_tests: [unique, not_null]
+
+  - name: cnl_merchant
+    columns:
+      - name: merchant_id
+        data_tests: [unique, not_null]
+
+  - name: cnl_payment_instrument
+    description: "Payment Instrument: tokens and last-4 only. No PAN / VPA / account numbers exist anywhere."
+    columns:
+      - name: canonical_instrument_id
+        data_tests: [unique, not_null]
+
+  - name: cnl_payment_channel
+    columns:
+      - name: channel_code
+        data_tests: [unique, not_null]
+
+  - name: cnl_currency
+    columns:
+      - name: currency_code
+        data_tests: [unique, not_null]
+
+  - name: cnl_exceptions
+    description: >
+      Integration exceptions (unknown status, invalid amount/currency/timestamp, unmapped provider,
+      orphans, refunds above capture...). Nothing is silently dropped.
+    columns:
+      - name: exception_id
+        data_tests: [unique, not_null]
+      - name: exception_type
+        data_tests: [not_null]
+
+  - name: cfg_source_attribute_mapping
+    description: "Read-only publication of vars.payment_providers (source-to-canonical mapping metadata)."
+    columns:
+      - name: source_system
+        data_tests: [not_null]
+      - name: canonical_attribute
+        data_tests: [not_null]

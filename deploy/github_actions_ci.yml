@@ -1,0 +1,55 @@
+# Example CI pipeline (copy to .github/workflows/ci.yml). Runs OUTSIDE Snowflake;
+# all SQL executes in Snowflake. Secrets come from the CI secret store only.
+name: fintech-platform-ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: pip install dbt-snowflake sqlglot pytest
+      - name: Snowpark UDF unit tests (no Snowflake needed)
+        run: python -m pytest -q snowpark/tests
+      - name: Deployed UDF source matches tested source
+        run: python tools/build_snowpark_sql.py --check
+      - name: dbt parse
+        working-directory: dbt
+        env: {SNOWFLAKE_ACCOUNT: x, SNOWFLAKE_USER: x, SNOWFLAKE_PRIVATE_KEY_PATH: /dev/null}
+        run: cp profiles.yml.example profiles.yml && dbt parse --profiles-dir .
+
+  integration:
+    needs: validate
+    runs-on: ubuntu-latest
+    env:
+      SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_DBT_USER }}
+      SNOWFLAKE_PRIVATE_KEY_PATH: /tmp/key.p8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: pip install dbt-snowflake snowflake-cli
+      - run: echo "${{ secrets.SNOWFLAKE_DBT_PRIVATE_KEY }}" > /tmp/key.p8 && chmod 600 /tmp/key.p8
+      - name: dbt build on FINTECH_TEST with fixed as-of date
+        working-directory: dbt
+        run: |
+          cp profiles.yml.example profiles.yml
+          dbt seed --target test --profiles-dir .
+          dbt snapshot --target test --profiles-dir .
+          dbt build --target test --profiles-dir . --exclude resource_type:snapshot \
+                    --vars '{recon_as_of_date: "2026-10-01"}'
+
+  deploy-prod:
+    needs: integration
+    if: github.ref == 'refs/heads/main'
+    environment: production          # requires manual approval in GitHub
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "run deploy/deploy.sh with ENV_DB=FINTECH_PROD and dbt --target prod"

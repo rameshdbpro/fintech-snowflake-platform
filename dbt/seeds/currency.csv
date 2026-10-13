@@ -1,0 +1,7 @@
+currency_code,currency_name,minor_units,is_active
+INR,Indian Rupee,2,true
+USD,US Dollar,2,true
+EUR,Euro,2,true
+GBP,Pound Sterling,2,true
+AED,UAE Dirham,2,true
+JPY,Japanese Yen,0,true

@@ -1,0 +1,100 @@
+version: 2
+
+models:
+  - name: stg_payments
+    description: >
+      RAW.PAYMENTS without exact duplicate deliveries, with provider-specific keys mapped to
+      provider-neutral columns by the provider_field macro (vars.payment_providers). Values are
+      still the provider's original strings. record_version_desc = 1 is the latest payload of an attempt.
+    columns:
+      - name: canonical_attempt_id
+        description: "md5(source_system|source_transaction_id) - provider ids are NOT globally unique."
+        data_tests: [not_null]
+      - name: record_hash
+        data_tests: [unique, not_null]
+      - name: source_system
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: source('config', 'source_system')
+                field: source_system
+              config: {severity: warn}
+
+  - name: stg_payment_status_history
+    columns:
+      - name: event_id
+        data_tests: [not_null]
+      - name: canonical_attempt_id
+        data_tests: [not_null]
+
+  - name: stg_customers
+    columns:
+      - name: customer_id
+        data_tests: [unique, not_null]
+
+  - name: stg_customer_kyc_history
+    columns:
+      - name: kyc_event_id
+        data_tests: [unique, not_null]
+      - name: risk_rating
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['LOW', 'MEDIUM', 'HIGH']
+
+  - name: stg_merchants
+    columns:
+      - name: merchant_id
+        data_tests: [unique, not_null]
+      - name: fee_pct
+        data_tests:
+          - non_negative
+
+  - name: stg_refunds
+    columns:
+      - name: refund_id
+        data_tests: [unique, not_null]
+
+  - name: stg_refund_status_history
+    columns:
+      - name: refund_event_id
+        data_tests: [unique, not_null]
+
+  - name: stg_bank_settlements
+    columns:
+      - name: settlement_line_id
+        data_tests: [unique, not_null]
+      - name: settlement_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['SALE', 'REFUND', 'CHARGEBACK', 'ADJUSTMENT']
+
+  - name: stg_bank_statement_transactions
+    description: "Bank statement lines with parsed_settlement_ref extracted from the bank-specific narrative."
+    columns:
+      - name: bank_txn_id
+        data_tests: [unique, not_null]
+      - name: dr_cr
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['CR', 'DR']
+      - name: amount
+        data_tests: [non_negative]
+
+  - name: stg_payment_channels
+    columns:
+      - name: channel_code
+        data_tests: [not_null]
+
+  - name: stg_fraud_alerts
+    columns:
+      - name: alert_id
+        data_tests: [unique, not_null]
+
+  - name: stg_chargebacks
+    columns:
+      - name: chargeback_id
+        data_tests: [unique, not_null]

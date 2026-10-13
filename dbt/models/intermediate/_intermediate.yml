@@ -1,0 +1,21 @@
+version: 2
+
+models:
+  - name: int_settlement_by_attempt
+    description: "Settlement lines pre-aggregated to attempt grain (fan-out guard)."
+    columns:
+      - name: canonical_attempt_id
+        data_tests: [unique, not_null]
+  - name: int_settlement_batch_totals
+    description: "Provider-reported batch totals. Grain: batch x currency."
+  - name: int_bank_credit_by_ref
+    description: "Bank lines aggregated by parsed settlement reference. Grain: ref x currency."
+  - name: int_refund_totals_by_attempt
+    columns:
+      - name: canonical_attempt_id
+        data_tests: [unique, not_null]
+  - name: int_customer_velocity
+    description: "Platform fraud rule alerts driven by CONFIG.FRAUD_THRESHOLD."
+    columns:
+      - name: canonical_alert_id
+        data_tests: [unique, not_null]

@@ -1,0 +1,158 @@
+name: fintech_payments
+version: "1.0.0"
+config-version: 2
+profile: fintech_snowflake
+
+# dbt Core runs OUTSIDE Snowflake (developer laptop or CI runner) and sends
+# compiled SQL to Snowflake. See README "How dbt runs". Alternatively, the same
+# project can be deployed as a Snowflake "dbt Project" object and executed with
+# EXECUTE DBT PROJECT (see snowflake/09_streams_tasks.sql, optional section).
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+analysis-paths: ["analyses"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages", "logs"]
+
+on-run-end:
+  - "{{ log_dbt_results(results) }}"
+  - "{{ log_model_lineage() }}"
+
+vars:
+  # Reporting timezone for all *_ist columns and date keys
+  reporting_timezone: "Asia/Kolkata"
+  # Reconciliation "as of" date. null => CURRENT_DATE in reporting tz.
+  # Override for reproducible test runs:  --vars '{recon_as_of_date: "2026-10-01"}'
+  recon_as_of_date: null
+  # Incremental models re-process this many days of ingestion to absorb
+  # late-arriving events and provider corrections.
+  incremental_lookback_days: 3
+  # Use the Snowpark UDF OPS.PARSE_BANK_NARRATIVE (true) or the pure-SQL
+  # REGEXP fallback (false) for bank statement narratives.
+  use_snowpark_narrative_parser: true
+  # Attach masking / row access policies in post-hooks (needs Enterprise edition
+  # and snowflake/10_security_governance.sql deployed first).
+  apply_governance_policies: true
+  # Schema holding OPS UDFs / CONFIG tables (same database as target)
+  ops_schema: OPS
+
+  # ----------------------------------------------------------------------
+  # SOURCE-TO-CANONICAL MAPPING (version-controlled, deploy to change).
+  # Onboarding a provider = add a block here + status rows in
+  # CONFIG.STATUS_MAPPING + channel rows in RAW.PAYMENT_CHANNELS.
+  # No downstream model changes. Published to Snowflake as
+  # CANONICAL.CFG_SOURCE_ATTRIBUTE_MAPPING for impact analysis.
+  # Payload keys are read case-insensitively (GET_IGNORE_CASE).
+  # ----------------------------------------------------------------------
+  payment_providers:
+    PROV_A:
+      timestamp_convention: LOCAL_TZ
+      source_timezone: Asia/Kolkata
+      timestamp_format: "YYYY-MM-DD HH24:MI:SS"
+      amount_unit: MAJOR
+      fields:
+        source_transaction_id: txn_ref
+        merchant_order_id: order_id
+        merchant_id: merchant_code
+        customer_id: cust_id
+        amount: amt
+        currency_code: ccy
+        status: txn_status
+        event_ts: txn_time
+        channel_value: channel
+        instrument_token: vpa_token
+        instrument_last4: null
+        instrument_network: null
+    PROV_B:
+      timestamp_convention: EPOCH_MS
+      source_timezone: UTC
+      timestamp_format: null
+      amount_unit: MINOR
+      fields:
+        source_transaction_id: payment_id
+        merchant_order_id: merchant_reference
+        merchant_id: merchant_id
+        customer_id: customer_id
+        amount: payment_amount
+        currency_code: currency
+        status: state
+        event_ts: created_at_ms
+        channel_value: method
+        instrument_token: card_token
+        instrument_last4: card_last4
+        instrument_network: card_network
+    PROV_C:
+      timestamp_convention: ISO8601_TZ
+      source_timezone: null
+      timestamp_format: null
+      amount_unit: MAJOR
+      fields:
+        source_transaction_id: reference_no
+        merchant_order_id: customer_ref
+        merchant_id: merchant_ref
+        customer_id: payer_id
+        amount: amount_value
+        currency_code: currency_code
+        status: status_code
+        event_ts: value_ts
+        channel_value: rail
+        instrument_token: account_token
+        instrument_last4: null
+        instrument_network: null
+
+models:
+  fintech_payments:
+    +copy_grants: true
+    +persist_docs:
+      relation: true
+      columns: true
+    staging:
+      +schema: STAGING
+      +materialized: view
+      +tags: ["staging"]
+    canonical:
+      +schema: CANONICAL
+      +materialized: table
+      +tags: ["canonical"]
+    intermediate:
+      +schema: INTERMEDIATE
+      +materialized: view
+      +tags: ["intermediate"]
+    core:
+      +schema: CORE
+      +materialized: table
+      +tags: ["core"]
+    marts:
+      +schema: MARTS
+      +materialized: table
+      +tags: ["marts"]
+    semantic:
+      +schema: SEMANTIC
+      +materialized: view
+      +tags: ["semantic"]
+
+seeds:
+  fintech_payments:
+    +schema: STAGING
+    +quote_columns: false
+    currency:
+      +column_types:
+        currency_code: varchar(3)
+        minor_units: number(1,0)
+    fx_rates_monthly:
+      +column_types:
+        rate_month: date
+        currency_code: varchar(3)
+        rate_to_inr: number(18,6)
+
+snapshots:
+  fintech_payments:
+    +target_schema: SNAPSHOTS
+
+data_tests:
+  fintech_payments:
+    +store_failures: true
+    +schema: DQ_FAILURES

@@ -1,0 +1,174 @@
+version: 2
+
+# Dimensional core. Grain / keys / measures are also documented in each model
+# header and in docs/dimensional_model.md (Mermaid ER diagram).
+
+models:
+  # ----------------------------------------------------------------- dims
+  - name: dim_date
+    description: "Calendar 2024-2027, Indian fiscal year. Business key date_day; key date_key (YYYYMMDD). Type 0."
+    columns:
+      - name: date_key
+        data_tests: [unique, not_null]
+
+  - name: dim_currency
+    description: "ISO currency. Business key currency_code. Type 1. Includes UNKNOWN member."
+    columns:
+      - name: currency_key
+        data_tests: [unique, not_null]
+
+  - name: dim_payment_channel
+    description: "Canonical channel. Business key channel_code. Type 1. Includes UNKNOWN member."
+    columns:
+      - name: channel_key
+        data_tests: [unique, not_null]
+      - name: channel_group
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['UPI', 'CARD', 'WALLET', 'BANK_TRANSFER', 'UNKNOWN']
+
+  - name: dim_merchant
+    description: "Merchant SCD2 (snapshot). Business key merchant_id + valid_from. Region drives row access."
+    columns:
+      - name: merchant_key
+        data_tests: [unique, not_null]
+    data_tests:
+      - scd2_valid_windows:
+          arguments:
+            business_key: merchant_id
+
+  - name: dim_customer
+    description: >
+      Customer SCD Type 2 on KYC level/status, risk rating and PEP flag. Business key customer_id +
+      valid_from. PII masked by policy except for FINTECH_KYC_OFFICER.
+    columns:
+      - name: customer_key
+        data_tests: [unique, not_null]
+      - name: risk_rating
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['LOW', 'MEDIUM', 'HIGH', 'UNKNOWN']
+    data_tests:
+      - scd2_valid_windows:
+          arguments:
+            business_key: customer_id
+
+  # ---------------------------------------------------------------- facts
+  - name: fact_payment_attempt
+    description: "Grain: one provider attempt. See model header for keys/measures."
+    columns:
+      - name: attempt_key
+        data_tests: [unique, not_null]
+      - name: customer_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_customer'), field: customer_key}
+      - name: merchant_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_merchant'), field: merchant_key}
+      - name: channel_key
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_payment_channel'), field: channel_key}
+      - name: attempt_date_key
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_date'), field: date_key}
+              config: {where: "is_valid_record"}
+      - name: attempt_amount
+        data_tests:
+          - non_negative:
+              arguments: {where_clause: "is_valid_record"}
+    data_tests:
+      - row_count_matches:
+          name: fact_attempt_rowcount_equals_canonical
+          arguments:
+            compare_model: ref('cnl_payment_attempt')
+
+  - name: fact_payment_transaction
+    description: "Grain: one merchant order (all retries/providers). See model header."
+    columns:
+      - name: transaction_key
+        data_tests: [unique, not_null]
+      - name: merchant_key
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_merchant'), field: merchant_key}
+      - name: customer_key
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_customer'), field: customer_key}
+      - name: transaction_date_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_date'), field: date_key}
+      - name: captured_amount
+        data_tests:
+          # control total: canonical -> fact (no loss, no inflation)
+          - amount_reconciles:
+              name: fact_txn_captured_equals_canonical
+              arguments:
+                compare_model: ref('cnl_payment_transaction')
+                compare_column: captured_amount
+    data_tests:
+      - row_count_matches:
+          name: fact_txn_rowcount_equals_canonical
+          arguments:
+            compare_model: ref('cnl_payment_transaction')
+
+  - name: fact_refund
+    columns:
+      - name: refund_key
+        data_tests: [unique, not_null]
+      - name: refund_amount
+        data_tests:
+          - non_negative
+          - amount_reconciles:
+              name: fact_refund_equals_canonical
+              arguments:
+                compare_model: ref('cnl_refund')
+                compare_column: refund_amount
+
+  - name: fact_settlement_event
+    columns:
+      - name: settlement_event_key
+        data_tests: [unique, not_null]
+      - name: settlement_date_key
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_date'), field: date_key}
+      - name: net_amount
+        data_tests:
+          - amount_reconciles:
+              name: fact_settlement_net_equals_canonical
+              arguments:
+                compare_model: ref('cnl_settlement')
+                compare_column: net_amount
+
+  - name: fact_chargeback
+    columns:
+      - name: chargeback_key
+        data_tests: [unique, not_null]
+      - name: chargeback_amount
+        data_tests: [non_negative]
+
+  - name: fact_fraud_alert
+    columns:
+      - name: fraud_alert_key
+        data_tests: [unique, not_null]
+      - name: alert_source
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['VENDOR', 'PLATFORM_RULE']
+      - name: severity
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['LOW', 'MEDIUM', 'HIGH']

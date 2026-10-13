@@ -1,0 +1,226 @@
+/* =====================================================================
+   01_RAW_TABLES.SQL
+   Twelve raw source datasets + provider-shaped CSV landing tables.
+   Conventions
+     * RAW tables are append-only; nothing in RAW is ever updated.
+     * All *_AT / *_TS audit columns are UTC TIMESTAMP_NTZ.
+     * Provider-specific business timestamps are kept AS DELIVERED
+       (VARCHAR) where providers differ; canonicalisation happens in dbt.
+     * PAYMENTS keeps the provider payload as VARIANT because the three
+       providers use different field names (txn_ref / payment_id / reference_no).
+   Run as FINTECH_DEPLOYER.
+   ===================================================================== */
+USE ROLE FINTECH_DEPLOYER;
+SET DB_NAME = 'FINTECH_DEV';
+USE DATABASE IDENTIFIER($DB_NAME);
+USE WAREHOUSE WH_FINTECH_LOAD;
+USE SCHEMA RAW;
+
+-- 1. PAYMENTS: one row per provider payment ATTEMPT record as delivered.
+CREATE TABLE IF NOT EXISTS RAW.PAYMENTS (
+    RAW_ROW_ID          NUMBER(38,0) IDENTITY(1,1) ORDER,
+    SOURCE_SYSTEM       VARCHAR(20)   NOT NULL COMMENT 'PROV_A | PROV_B | PROV_C | ... (see CONFIG.SOURCE_SYSTEM)',
+    SOURCE_RECORD       VARIANT       NOT NULL COMMENT 'Provider payload, provider-specific keys, original values preserved',
+    RECORD_HASH         VARCHAR(64)   NOT NULL COMMENT 'SHA2 of SOURCE_SYSTEM||payload; identical re-deliveries share a hash',
+    SOURCE_FILE_NAME    VARCHAR(500),
+    SOURCE_FILE_ROW     NUMBER(38,0),
+    BATCH_ID            VARCHAR(100)  NOT NULL,
+    INGESTED_AT         TIMESTAMP_NTZ(9) NOT NULL DEFAULT SYSDATE()
+) COMMENT = 'Raw payment attempt records from all providers (multi-schema payload)';
+
+-- 2. PAYMENT_STATUS_HISTORY: provider status events (timestamps in provider convention)
+CREATE TABLE IF NOT EXISTS RAW.PAYMENT_STATUS_HISTORY (
+    EVENT_ID               VARCHAR(100) NOT NULL,
+    SOURCE_SYSTEM          VARCHAR(20)  NOT NULL,
+    SOURCE_TRANSACTION_ID  VARCHAR(100) NOT NULL,
+    RAW_STATUS             VARCHAR(50)  NOT NULL,
+    EVENT_TS_RAW           VARCHAR(50)  NOT NULL COMMENT 'Provider format: IST string / epoch ms / ISO-8601 with offset',
+    REASON_CODE            VARCHAR(50),
+    SOURCE_FILE_NAME       VARCHAR(500),
+    BATCH_ID               VARCHAR(100) NOT NULL,
+    INGESTED_AT            TIMESTAMP_NTZ(9) NOT NULL DEFAULT SYSDATE()
+);
+
+-- 3. CUSTOMERS (PII - masked by policy in 10_security_governance.sql)
+CREATE TABLE IF NOT EXISTS RAW.CUSTOMERS (
+    CUSTOMER_ID       VARCHAR(50) NOT NULL,
+    FULL_NAME         VARCHAR(200),
+    EMAIL             VARCHAR(200),
+    PHONE             VARCHAR(30),
+    DATE_OF_BIRTH     DATE,
+    PAN_NUMBER        VARCHAR(20)  COMMENT 'Synthetic PAN-format id. Never real.',
+    CITY              VARCHAR(100),
+    STATE             VARCHAR(100),
+    COUNTRY_CODE      VARCHAR(2),
+    CUSTOMER_SEGMENT  VARCHAR(30),
+    CREATED_AT        TIMESTAMP_NTZ(9),
+    UPDATED_AT        TIMESTAMP_NTZ(9),
+    SOURCE_FILE_NAME  VARCHAR(500),
+    BATCH_ID          VARCHAR(100) NOT NULL,
+    INGESTED_AT       TIMESTAMP_NTZ(9) NOT NULL DEFAULT SYSDATE()
+);
+
+-- 4. CUSTOMER_KYC_HISTORY: one row per KYC / risk change event
+CREATE TABLE IF NOT EXISTS RAW.CUSTOMER_KYC_HISTORY (
+    KYC_EVENT_ID      VARCHAR(100) NOT NULL,
+    CUSTOMER_ID       VARCHAR(50)  NOT NULL,
+    KYC_LEVEL         VARCHAR(20)  COMMENT 'MIN | FULL | ENHANCED',
+    KYC_STATUS        VARCHAR(20)  COMMENT 'PENDING | VERIFIED | REJECTED | EXPIRED',
+    RISK_RATING       VARCHAR(10)  COMMENT 'LOW | MEDIUM | HIGH',
+    PEP_FLAG          BOOLEAN,
+    DOCUMENT_TYPE     VARCHAR(30),
+    EFFECTIVE_FROM    TIMESTAMP_NTZ(9) NOT NULL COMMENT 'UTC',
+    VERIFIED_BY       VARCHAR(50),
+    SOURCE_FILE_NAME  VARCHAR(500),
+    BATCH_ID          VARCHAR(100) NOT NULL,
+    INGESTED_AT       TIMESTAMP_NTZ(9) NOT NULL DEFAULT SYSDATE()
+);
+
+-- 5. MERCHANTS (mutable source; history captured by dbt snapshot)
+CREATE TABLE IF NOT EXISTS RAW.MERCHANTS (
+    MERCHANT_ID            VARCHAR(50) NOT NULL,
+    MERCHANT_NAME          VARCHAR(200),
+    MCC_CODE               VARCHAR(4),
+    MERCHANT_CATEGORY      VARCHAR(50),
+    REGION                 VARCHAR(10) COMMENT 'NORTH | SOUTH | EAST | WEST (row access policy key)',
+    CITY                   VARCHAR(100),
+    ONBOARDED_DATE         DATE,
+    SETTLEMENT_CYCLE_DAYS  NUMBER(3,0) COMMENT 'T+n settlement',
+    FEE_PCT                NUMBER(6,4) COMMENT 'MDR, e.g. 0.0200 = 2%',
+    MERCHANT_STATUS        VARCHAR(20),
+    UPDATED_AT             TIMESTAMP_NTZ(9),
+    SOURCE_FILE_NAME       VARCHAR(500),
+    BATCH_ID               VARCHAR(100) NOT NULL,
+    INGESTED_AT            TIMESTAMP_NTZ(9) NOT NULL DEFAULT SYSDATE()
+);
+
+-- 6. REFUNDS
+CREATE TABLE IF NOT EXISTS RAW.REFUNDS (
+    REFUND_ID              VARCHAR(100) NOT NULL,
+    SOURCE_SYSTEM          VARCHAR(20)  NOT NULL,
+    SOURCE_TRANSACTION_ID  VARCHAR(100) NOT NULL COMMENT 'Provider attempt id that is refunded',
+    REFUND_AMOUNT          NUMBER(18,2),
+    CURRENCY_CODE          VARCHAR(3),
+    REFUND_TYPE            VARCHAR(10) COMMENT 'FULL | PARTIAL',
+    REFUND_REASON          VARCHAR(100),
+    REQUESTED_AT           TIMESTAMP_NTZ(9) COMMENT 'UTC',
+    SOURCE_FILE_NAME       VARCHAR(500),
+    BATCH_ID               VARCHAR(100) NOT NULL,
+    INGESTED_AT            TIMESTAMP_NTZ(9) NOT NULL DEFAULT SYSDATE()
+);
+
+-- 7. REFUND_STATUS_HISTORY
+CREATE TABLE IF NOT EXISTS RAW.REFUND_STATUS_HISTORY (
+    REFUND_EVENT_ID   VARCHAR(100) NOT NULL,
+    REFUND_ID         VARCHAR(100) NOT NULL,
+    REFUND_STATUS     VARCHAR(20)  COMMENT 'INITIATED | PROCESSED | FAILED | REVERSED',
+    EVENT_TS          TIMESTAMP_NTZ(9) COMMENT 'UTC',
+    SOURCE_FILE_NAME  VARCHAR(500),
+    BATCH_ID          VARCHAR(100) NOT NULL,
+    INGESTED_AT       TIMESTAMP_NTZ(9) NOT NULL DEFAULT SYSDATE()
+);
+
+-- 8. BANK_SETTLEMENTS: provider settlement report lines (many per payment possible)
+CREATE TABLE IF NOT EXISTS RAW.BANK_SETTLEMENTS (
+    SETTLEMENT_LINE_ID     VARCHAR(100) NOT NULL,
+    SETTLEMENT_BATCH_ID    VARCHAR(50)  NOT NULL COMMENT 'Format SB-<prov>-<yyyymmdd>; appears in bank narrative',
+    SOURCE_SYSTEM          VARCHAR(20)  NOT NULL,
+    SOURCE_TRANSACTION_ID  VARCHAR(100) COMMENT 'NULL for batch-level adjustments',
+    MERCHANT_ID            VARCHAR(50),
+    SETTLEMENT_TYPE        VARCHAR(20)  COMMENT 'SALE | REFUND | CHARGEBACK | ADJUSTMENT',
+    IS_FINAL_SETTLEMENT    BOOLEAN      COMMENT 'FALSE when the provider will send further partial lines',
+    GROSS_AMOUNT           NUMBER(18,2),
+    FEE_AMOUNT             NUMBER(18,2),
+    TAX_AMOUNT             NUMBER(18,2),
+    NET_AMOUNT             NUMBER(18,2),
+    CURRENCY_CODE          VARCHAR(3),
+    SETTLEMENT_DATE        DATE,
+    SOURCE_FILE_NAME       VARCHAR(500),
+    BATCH_ID               VARCHAR(100) NOT NULL,
+    INGESTED_AT            TIMESTAMP_NTZ(9) NOT NULL DEFAULT SYSDATE()
+);
+
+-- 9. BANK_STATEMENT_TRANSACTIONS: merchant-collection account statement lines
+CREATE TABLE IF NOT EXISTS RAW.BANK_STATEMENT_TRANSACTIONS (
+    BANK_TXN_ID         VARCHAR(100) NOT NULL,
+    BANK_CODE           VARCHAR(10)  COMMENT 'HDFC | ICICI | SBI; each has its own narrative format',
+    BANK_ACCOUNT_TOKEN  VARCHAR(64),
+    VALUE_DATE          DATE,
+    POSTING_TS          TIMESTAMP_NTZ(9) COMMENT 'UTC',
+    DR_CR               VARCHAR(2)   COMMENT 'CR | DR',
+    AMOUNT              NUMBER(18,2) COMMENT 'Always positive; sign from DR_CR',
+    CURRENCY_CODE       VARCHAR(3),
+    NARRATIVE           VARCHAR(500),
+    SOURCE_FILE_NAME    VARCHAR(500),
+    BATCH_ID            VARCHAR(100) NOT NULL,
+    INGESTED_AT         TIMESTAMP_NTZ(9) NOT NULL DEFAULT SYSDATE()
+);
+
+-- 10. PAYMENT_CHANNELS: channel reference incl. provider channel codes
+CREATE TABLE IF NOT EXISTS RAW.PAYMENT_CHANNELS (
+    CHANNEL_CODE            VARCHAR(30) NOT NULL,
+    SOURCE_SYSTEM           VARCHAR(20) NOT NULL,
+    PROVIDER_CHANNEL_VALUE  VARCHAR(50) NOT NULL,
+    CHANNEL_NAME            VARCHAR(100),
+    CHANNEL_GROUP           VARCHAR(30) COMMENT 'UPI | CARD | WALLET | BANK_TRANSFER',
+    INSTRUMENT_TYPE         VARCHAR(30) COMMENT 'UPI_VPA | DEBIT_CARD | CREDIT_CARD | WALLET | BANK_ACCOUNT',
+    IS_ACTIVE               BOOLEAN,
+    BATCH_ID                VARCHAR(100) NOT NULL,
+    INGESTED_AT             TIMESTAMP_NTZ(9) NOT NULL DEFAULT SYSDATE()
+);
+
+-- 11. FRAUD_ALERTS (from provider/vendor fraud engines)
+CREATE TABLE IF NOT EXISTS RAW.FRAUD_ALERTS (
+    ALERT_ID               VARCHAR(100) NOT NULL,
+    SOURCE_SYSTEM          VARCHAR(20),
+    SOURCE_TRANSACTION_ID  VARCHAR(100),
+    CUSTOMER_ID            VARCHAR(50),
+    RULE_CODE              VARCHAR(50),
+    ALERT_SCORE            NUMBER(5,2) COMMENT '0-100',
+    ALERT_STATUS           VARCHAR(30) COMMENT 'OPEN | CONFIRMED_FRAUD | FALSE_POSITIVE | CLOSED',
+    ALERT_TS               TIMESTAMP_NTZ(9) COMMENT 'UTC',
+    SOURCE_FILE_NAME       VARCHAR(500),
+    BATCH_ID               VARCHAR(100) NOT NULL,
+    INGESTED_AT            TIMESTAMP_NTZ(9) NOT NULL DEFAULT SYSDATE()
+);
+
+-- 12. CHARGEBACKS
+CREATE TABLE IF NOT EXISTS RAW.CHARGEBACKS (
+    CHARGEBACK_ID          VARCHAR(100) NOT NULL,
+    SOURCE_SYSTEM          VARCHAR(20)  NOT NULL,
+    SOURCE_TRANSACTION_ID  VARCHAR(100) NOT NULL,
+    CHARGEBACK_AMOUNT      NUMBER(18,2),
+    CURRENCY_CODE          VARCHAR(3),
+    REASON_CODE            VARCHAR(20),
+    CHARGEBACK_STATUS      VARCHAR(20) COMMENT 'OPEN | WON | LOST | ACCEPTED',
+    RECEIVED_DATE          DATE,
+    RESOLVED_DATE          DATE,
+    SOURCE_FILE_NAME       VARCHAR(500),
+    BATCH_ID               VARCHAR(100) NOT NULL,
+    INGESTED_AT            TIMESTAMP_NTZ(9) NOT NULL DEFAULT SYSDATE()
+);
+
+/* ---------------------------------------------------------------------
+   LANDING: provider-shaped CSV tables (all VARCHAR so nothing is lost on
+   load). OPS.SP_PROMOTE_LANDING_PAYMENTS turns each row into a VARIANT
+   payload with OBJECT_CONSTRUCT(*), so a new provider layout needs only a
+   new landing table + mapping config, not a new RAW table.
+   --------------------------------------------------------------------- */
+CREATE TABLE IF NOT EXISTS LANDING.PAYMENTS_PROV_A (
+    TXN_REF VARCHAR, ORDER_ID VARCHAR, MERCHANT_CODE VARCHAR, CUST_ID VARCHAR,
+    AMT VARCHAR, CCY VARCHAR, TXN_STATUS VARCHAR, TXN_TIME VARCHAR,
+    CHANNEL VARCHAR, VPA_TOKEN VARCHAR, DEVICE_ID VARCHAR,
+    _FILE_NAME VARCHAR, _FILE_ROW NUMBER, _LOADED_AT TIMESTAMP_NTZ DEFAULT SYSDATE()
+);
+CREATE TABLE IF NOT EXISTS LANDING.PAYMENTS_PROV_B (
+    PAYMENT_ID VARCHAR, MERCHANT_REFERENCE VARCHAR, MERCHANT_ID VARCHAR, CUSTOMER_ID VARCHAR,
+    PAYMENT_AMOUNT VARCHAR, CURRENCY VARCHAR, STATE VARCHAR, CREATED_AT_MS VARCHAR,
+    METHOD VARCHAR, CARD_TOKEN VARCHAR, CARD_LAST4 VARCHAR, CARD_NETWORK VARCHAR,
+    _FILE_NAME VARCHAR, _FILE_ROW NUMBER, _LOADED_AT TIMESTAMP_NTZ DEFAULT SYSDATE()
+);
+CREATE TABLE IF NOT EXISTS LANDING.PAYMENTS_PROV_C (
+    REFERENCE_NO VARCHAR, CUSTOMER_REF VARCHAR, MERCHANT_REF VARCHAR, PAYER_ID VARCHAR,
+    AMOUNT_VALUE VARCHAR, CURRENCY_CODE VARCHAR, STATUS_CODE VARCHAR, VALUE_TS VARCHAR,
+    RAIL VARCHAR, ACCOUNT_TOKEN VARCHAR,
+    _FILE_NAME VARCHAR, _FILE_ROW NUMBER, _LOADED_AT TIMESTAMP_NTZ DEFAULT SYSDATE()
+);

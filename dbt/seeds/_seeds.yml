@@ -1,0 +1,13 @@
+version: 2
+
+seeds:
+  - name: currency
+    description: "ISO 4217 subset with minor units (precision standard). Static reference; change = deployment."
+    columns:
+      - name: currency_code
+        data_tests: [unique, not_null]
+  - name: fx_rates_monthly
+    description: "SYNTHETIC monthly FX rates to INR used for reporting-currency conversion. Replace with a governed rates feed in production."
+    columns:
+      - name: rate_to_inr
+        data_tests: [not_null, non_negative]

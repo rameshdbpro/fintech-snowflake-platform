@@ -1,0 +1,95 @@
+version: 2
+
+models:
+  - name: mart_payment_daily
+    description: "Daily payment KPIs. Grain: date_ist x merchant_id x channel_code. Fan-out safe."
+    data_tests:
+      # FAN-OUT GUARDS: mart totals must equal the authoritative fact totals.
+      - amount_reconciles:
+          name: daily_volume_equals_fact_volume
+          arguments:
+            column_name: payment_volume_inr
+            compare_model: ref('fact_payment_transaction')
+            compare_column: captured_amount_inr
+            compare_filter: "is_captured"
+      - amount_reconciles:
+          name: daily_refunds_equal_fact_refunds
+          arguments:
+            column_name: refund_amount_inr
+            compare_model: ref('fact_refund')
+            compare_column: refund_amount_inr
+            compare_filter: "is_processed and has_payment"
+      - amount_reconciles:
+          name: daily_attempts_equal_fact_attempts
+          arguments:
+            column_name: attempt_count
+            compare_model: ref('fact_payment_attempt')
+            compare_column: "iff(is_valid_record, 1, 0)"
+            tolerance: 0
+    columns:
+      - name: payment_volume_inr
+        data_tests: [non_negative]
+
+  - name: mart_merchant_performance
+    description: "Monthly merchant scorecard. Grain: month x merchant."
+    data_tests:
+      - amount_reconciles:
+          name: merchant_month_volume_equals_daily
+          arguments:
+            column_name: payment_volume_inr
+            compare_model: ref('mart_payment_daily')
+            compare_column: payment_volume_inr
+    columns:
+      - name: payment_success_rate
+        data_tests:
+          - non_negative
+
+  - name: mart_refund_chargeback_monthly
+    description: "Grain: month x channel_group x merchant_region."
+
+  - name: mart_settlement_reconciliation
+    description: "Payment-to-settlement reconciliation. See model header for formulas and status rules."
+    columns:
+      - name: attempt_key
+        data_tests: [unique, not_null]
+      - name: recon_status
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['NOT_APPLICABLE', 'SETTLED_NOT_CAPTURED', 'PENDING_SETTLEMENT', 'UNSETTLED',
+                         'MATCHED', 'PARTIALLY_SETTLED', 'OVER_SETTLED', 'AMOUNT_MISMATCH']
+    data_tests:
+      - amount_reconciles:
+          name: recon_settled_equals_sale_lines
+          arguments:
+            column_name: settled_gross
+            compare_model: ref('fact_settlement_event')
+            compare_column: gross_amount
+            # sale lines of attempts that are invalid (excluded from recon) would show here as a difference
+            compare_filter: "settlement_type = 'SALE' and is_matched_to_payment"
+          config: {severity: warn}
+
+  - name: mart_bank_reconciliation
+    description: "Settlement batch to bank statement reconciliation. Grain: batch x currency (+ orphan bank refs)."
+    columns:
+      - name: recon_status
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['MATCHED', 'AMOUNT_MISMATCH', 'MISSING_BANK_CREDIT', 'PENDING_BANK_CREDIT', 'UNMATCHED_BANK_CREDIT']
+
+  - name: mart_reconciliation_exceptions
+    description: "All reconciliation exceptions with category, severity, age, amount and source keys."
+    columns:
+      - name: exception_id
+        data_tests: [unique, not_null]
+
+  - name: mart_fraud_daily
+    description: "Grain: alert date x source x rule x severity x status."
+
+  - name: mart_customer_risk_history
+    description: "Risk classification transitions per customer (no PII)."
+    columns:
+      - name: customer_key
+        data_tests: [unique, not_null]

@@ -1,0 +1,74 @@
+version: 2
+
+sources:
+  - name: raw
+    description: "Immutable raw datasets (append-only). Loaded by SQL generator, COPY INTO or landing promotion."
+    database: "{{ target.database }}"
+    schema: RAW
+    config:
+      loaded_at_field: ingested_at
+      freshness:
+        warn_after: {count: 26, period: hour}
+        error_after: {count: 72, period: hour}
+    tables:
+      - name: payments
+        description: "Provider payment attempt records. Payload is provider-shaped VARIANT."
+        columns:
+          - name: source_system
+            data_tests: [not_null]
+          - name: source_record
+            data_tests: [not_null]
+          - name: record_hash
+            data_tests: [not_null]
+      - name: payment_status_history
+        columns:
+          - name: event_id
+            data_tests: [not_null]
+          - name: raw_status
+            data_tests: [not_null]
+      - name: customers
+        columns:
+          - name: customer_id
+            data_tests: [not_null]
+      - name: customer_kyc_history
+        columns:
+          - name: kyc_event_id
+            data_tests: [not_null]
+      - name: merchants
+        columns:
+          - name: merchant_id
+            data_tests: [not_null]
+      - name: refunds
+        columns:
+          - name: refund_id
+            data_tests: [not_null]
+      - name: refund_status_history
+      - name: bank_settlements
+        columns:
+          - name: settlement_line_id
+            data_tests: [not_null]
+      - name: bank_statement_transactions
+        config:
+          freshness:
+            warn_after: {count: 50, period: hour}
+            error_after: {count: 120, period: hour}
+      - name: payment_channels
+        config:
+          freshness: null
+      - name: fraud_alerts
+      - name: chargebacks
+
+  - name: config
+    description: "Runtime metadata maintained through the change-request workflow."
+    database: "{{ target.database }}"
+    schema: CONFIG
+    tables:
+      - name: source_system
+      - name: status_mapping
+        description: "Provider status -> canonical status. Unknown pairs flow to CNL_EXCEPTIONS."
+      - name: canonical_status
+      - name: recon_tolerance
+      - name: fraud_threshold
+      - name: bank_narrative_pattern
+      - name: expected_test_outcome
+        description: "Known-answer expectations for edge cases (05_edge_cases.sql)."

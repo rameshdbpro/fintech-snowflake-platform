@@ -1,0 +1,52 @@
+# Copy to ~/.dbt/profiles.yml (or set DBT_PROFILES_DIR to this folder after
+# renaming to profiles.yml). No secrets live in this file: everything comes
+# from environment variables injected by your shell or CI secret store.
+#
+# Required env vars:
+#   SNOWFLAKE_ACCOUNT            e.g. myorg-myaccount
+#   SNOWFLAKE_USER               service user for dbt (e.g. SVC_DBT_DEV)
+#   SNOWFLAKE_PRIVATE_KEY_PATH   path to the RSA private key (.p8) - key-pair auth
+#   SNOWFLAKE_PRIVATE_KEY_PASSPHRASE (optional)
+#
+fintech_snowflake:
+  target: dev
+  outputs:
+    dev:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      private_key_path: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PATH') }}"
+      private_key_passphrase: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PASSPHRASE', '') }}"
+      role: FINTECH_TRANSFORMER
+      warehouse: WH_FINTECH_TRANSFORM
+      database: FINTECH_DEV
+      schema: STAGING            # default; models set their own schema
+      threads: 8
+      query_tag: dbt_fintech_dev
+      client_session_keep_alive: false
+
+    test:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      private_key_path: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PATH') }}"
+      private_key_passphrase: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PASSPHRASE', '') }}"
+      role: FINTECH_TRANSFORMER
+      warehouse: WH_FINTECH_TRANSFORM
+      database: FINTECH_TEST
+      schema: STAGING
+      threads: 8
+      query_tag: dbt_fintech_ci
+
+    prod:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      private_key_path: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PATH') }}"
+      private_key_passphrase: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PASSPHRASE', '') }}"
+      role: FINTECH_TRANSFORMER
+      warehouse: WH_FINTECH_TRANSFORM
+      database: FINTECH_PROD
+      schema: STAGING
+      threads: 16
+      query_tag: dbt_fintech_prod
