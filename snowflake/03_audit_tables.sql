@@ -4,8 +4,7 @@
    to non-owner roles; see 10_security_governance.sql).
    ===================================================================== */
 USE ROLE FINTECH_DEPLOYER;
-SET DB_NAME = 'FINTECH_DEV';
-USE DATABASE IDENTIFIER($DB_NAME);
+USE DATABASE FINTECH_DEV;
 USE SCHEMA AUDIT;
 
 CREATE TABLE IF NOT EXISTS AUDIT.INGESTION_LOG (

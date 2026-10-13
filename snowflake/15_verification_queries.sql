@@ -4,8 +4,7 @@
      00-10 setup -> CALL generator -> 05 edge cases -> dbt seed/snapshot/build
      -> 11, 12, 13. Each query states its expected result.
    ===================================================================== */
-SET DB_NAME = 'FINTECH_DEV';
-USE DATABASE IDENTIFIER($DB_NAME);
+USE DATABASE FINTECH_DEV;
 USE WAREHOUSE WH_FINTECH_BI;
 
 -- V01 Twelve RAW datasets populated (expect 12 rows, all ROW_COUNT > 0)

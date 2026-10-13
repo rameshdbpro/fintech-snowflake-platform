@@ -133,5 +133,5 @@ The full, always-current lineage is `dbt docs generate` (DAG view) and `AUDIT.DB
 ## 6. Environments
 
 One database per environment (`FINTECH_DEV`, `FINTECH_TEST`, `FINTECH_PROD`), identical schemas.
-dbt targets map 1:1 (`profiles.yml.example`). SQL scripts take `SET DB_NAME = '...'`;
+dbt targets map 1:1 (`profiles.yml.example`). SQL scripts name FINTECH_DEV explicitly;
 `deploy/deploy.sh` substitutes it. Same roles across environments; grant per database.

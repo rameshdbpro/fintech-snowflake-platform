@@ -22,8 +22,7 @@
    * Batch AI calls are capped (P_MAX_ROWS <= 50) and logged to AUDIT.CORTEX_USAGE_LOG.
    ===================================================================== */
 USE ROLE FINTECH_DEPLOYER;
-SET DB_NAME = 'FINTECH_DEV';
-USE DATABASE IDENTIFIER($DB_NAME);
+USE DATABASE FINTECH_DEV;
 USE WAREHOUSE WH_FINTECH_AI;
 USE SCHEMA OPS;
 

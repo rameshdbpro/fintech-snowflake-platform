@@ -6,7 +6,7 @@
 
    Environment separation: one database per environment
      FINTECH_DEV, FINTECH_TEST, FINTECH_PROD
-   Every later script starts with:  SET DB_NAME = 'FINTECH_DEV';
+   Scripts target FINTECH_DEV; for TEST/PROD replace FINTECH_DEV (deploy/deploy.sh does it).
    ===================================================================== */
 
 ------------------------------------------------------------------------
@@ -72,9 +72,8 @@ GRANT OWNERSHIP ON DATABASE FINTECH_PROD TO ROLE FINTECH_DEPLOYER COPY CURRENT G
 
 USE ROLE FINTECH_DEPLOYER;
 
--- Change this per environment, then re-run the block below.
-SET DB_NAME = 'FINTECH_DEV';
-USE DATABASE IDENTIFIER($DB_NAME);
+-- For TEST/PROD replace FINTECH_DEV below and re-run this block.
+USE DATABASE FINTECH_DEV;
 
 CREATE SCHEMA IF NOT EXISTS LANDING      WITH MANAGED ACCESS COMMENT = 'Provider-shaped CSV landing tables (all VARCHAR)';
 CREATE SCHEMA IF NOT EXISTS RAW          WITH MANAGED ACCESS COMMENT = 'Immutable raw source tables (12 datasets)';

@@ -13,8 +13,7 @@
      role (regional analysts see only their regions).
    ===================================================================== */
 USE ROLE FINTECH_DEPLOYER;
-SET DB_NAME = 'FINTECH_DEV';
-USE DATABASE IDENTIFIER($DB_NAME);
+USE DATABASE FINTECH_DEV;
 USE SCHEMA DASHBOARD;
 
 -- 1. Executive KPIs: one row per period ---------------------------------------

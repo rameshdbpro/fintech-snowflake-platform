@@ -11,8 +11,7 @@
      * model SQL, grains, materialisations -> dbt code
    ===================================================================== */
 USE ROLE FINTECH_DEPLOYER;
-SET DB_NAME = 'FINTECH_DEV';
-USE DATABASE IDENTIFIER($DB_NAME);
+USE DATABASE FINTECH_DEV;
 USE WAREHOUSE WH_FINTECH_LOAD;
 USE SCHEMA CONFIG;
 

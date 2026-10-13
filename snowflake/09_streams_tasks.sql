@@ -20,8 +20,7 @@
      EXECUTE TASK OPS.TSK_INGEST_CONTROLS;
    ===================================================================== */
 USE ROLE FINTECH_DEPLOYER;
-SET DB_NAME = 'FINTECH_DEV';
-USE DATABASE IDENTIFIER($DB_NAME);
+USE DATABASE FINTECH_DEV;
 USE SCHEMA OPS;
 
 ------------------------------------------------------------------ 1. streams

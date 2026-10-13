@@ -21,8 +21,7 @@
      8 ROLLBACK  OPS.SP_ROLLBACK_CHANGE(id)   executes stored rollback SQL, then rebuild (step 6)
    ===================================================================== */
 USE ROLE FINTECH_DEPLOYER;
-SET DB_NAME = 'FINTECH_DEV';
-USE DATABASE IDENTIFIER($DB_NAME);
+USE DATABASE FINTECH_DEV;
 USE WAREHOUSE WH_FINTECH_LOAD;
 USE SCHEMA OPS;
 

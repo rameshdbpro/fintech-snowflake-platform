@@ -15,8 +15,7 @@
    Upper bound: 2,000,000 payments per call (size of OPS.GEN_NUMBERS).
    ===================================================================== */
 USE ROLE FINTECH_DEPLOYER;
-SET DB_NAME = 'FINTECH_DEV';
-USE DATABASE IDENTIFIER($DB_NAME);
+USE DATABASE FINTECH_DEV;
 USE WAREHOUSE WH_FINTECH_LOAD;
 USE SCHEMA OPS;
 

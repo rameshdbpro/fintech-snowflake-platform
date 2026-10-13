@@ -53,7 +53,7 @@ docs/                 architecture, canonical model, dimensional model, metrics,
 ## Quick start
 
 1. **Setup** — in Snowsight Workspaces, run `snowflake/00` → `01` → `02` → `03` → `04` → `06` → `07` → `08` → `09` → `10` → `14`
-   (each file declares the role it needs; edit `SET DB_NAME` for TEST/PROD). Or: `ENV_DB=FINTECH_DEV deploy/deploy.sh setup`.
+   (each file declares the role it needs; replace FINTECH_DEV for TEST/PROD). Or: `ENV_DB=FINTECH_DEV deploy/deploy.sh setup`.
 2. **Data** — `CALL FINTECH_DEV.OPS.SP_GENERATE_SYNTHETIC_DATA();` then run `05_edge_cases.sql`.
    Volumes/dates/seed are parameters: `CALL OPS.SP_GENERATE_SYNTHETIC_DATA(50000, 1000, 1000000, '2026-01-01', '2026-09-30', 'MY-SEED', TRUE);`
    External CSVs: Snowsight *Data → Add Data → Load files into a stage* (`OPS.STG_INBOUND/payments/prov_a/`), then

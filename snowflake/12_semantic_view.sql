@@ -14,8 +14,7 @@
    reporting dates; they are answered from DASHBOARD views / verified queries.
    ===================================================================== */
 USE ROLE FINTECH_DEPLOYER;
-SET DB_NAME = 'FINTECH_DEV';
-USE DATABASE IDENTIFIER($DB_NAME);
+USE DATABASE FINTECH_DEV;
 USE SCHEMA SEMANTIC;
 
 CREATE OR REPLACE SEMANTIC VIEW SEMANTIC.SV_PAYMENTS

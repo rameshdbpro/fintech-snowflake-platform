@@ -17,8 +17,7 @@ STAGE="${1:-all}"
 run() {   # replace the DB_NAME session variable default, then execute the file
   local f="$1"
   echo ">> $f  (database=$DB)"
-  sed "s/SET DB_NAME = 'FINTECH_DEV';/SET DB_NAME = '${DB}';/" "$ROOT/snowflake/$f" \
-    | sed "s/FINTECH_DEV\\.SEMANTIC/${DB}.SEMANTIC/g" \
+  sed "s/FINTECH_DEV/${DB}/g" "$ROOT/snowflake/$f" \
     | snow sql --connection "$CONN" --stdin
 }
 
