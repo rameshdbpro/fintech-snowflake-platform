@@ -146,7 +146,6 @@ LANGUAGE PYTHON
 RUNTIME_VERSION = '3.11'
 PACKAGES = ('snowflake-snowpark-python')
 HANDLER = 'run'
-COMMENT = 'Snowpark column profiler -> AUDIT.DATA_PROFILE'
 EXECUTE AS OWNER
 AS
 $$
